@@ -3,6 +3,7 @@
 
 import struct
 import sys
+import uuid
 from pathlib import Path
 
 
@@ -16,7 +17,11 @@ def element(group: int, number: int, vr: bytes, value: bytes) -> bytes:
 
 
 def ui(value: str) -> bytes:
-    return value.encode("ascii") + b"\0"
+    return value.encode("ascii")
+
+
+def generated_uid() -> str:
+    return f"2.25.{uuid.uuid4().int}"
 
 
 def main() -> None:
@@ -24,9 +29,9 @@ def main() -> None:
         raise SystemExit("usage: create_synthetic_dicom.py OUTPUT")
 
     sop_class = "1.2.840.10008.5.1.4.1.1.7"
-    sop_instance = "2.25.100000000000000000000000000000000001"
-    study_instance = "2.25.100000000000000000000000000000000002"
-    series_instance = "2.25.100000000000000000000000000000000003"
+    sop_instance = generated_uid()
+    study_instance = generated_uid()
+    series_instance = generated_uid()
 
     meta_body = b"".join(
         [
