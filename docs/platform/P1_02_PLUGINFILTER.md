@@ -34,12 +34,13 @@ Horos 4.0.1 loaded the ad-hoc-signed arm64 bundle, registered its menu command, 
 
 ## Tests and evidence
 
-- `make verify`: passed; validates the plist, arm64 Mach-O type, arm64 CPU header, real `PluginFilter` runtime reference, principal class, menu title, and plugin type. The installed Horos headers emit deprecation warnings but no plugin-source error.
+- `make verify`: passed; creates an ad-hoc signature and validates it strictly in addition to the plist, arm64 Mach-O type, arm64 CPU header, real `PluginFilter` runtime reference, principal class, menu title, and plugin type. The installed Horos headers emit deprecation warnings but no plugin-source error.
 - `codesign --verify --strict`: passed for both the build artifact and the placed artifact.
 - Horos runtime recognition: passed; the new plugin appeared enabled for the current user.
 - Horos menu registration: passed; `Image Filters > Medisale Plugin` was present.
 - Horos invocation: passed; selecting the command displayed `Medisale Plugin OK`.
 - The synthetic DICOM was recognized as DICOM, used only for the isolated runtime check, and deleted afterward.
+- The synthetic DICOM generator refuses to overwrite an existing output path and preserves the existing file unchanged.
 
 ## Known issues
 

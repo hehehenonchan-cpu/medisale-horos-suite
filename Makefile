@@ -4,7 +4,7 @@ BUILD_DIR := build
 BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
 EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
 
-.PHONY: all clean verify
+.PHONY: all clean sign verify
 
 all: $(EXECUTABLE)
 
@@ -20,7 +20,10 @@ $(EXECUTABLE): plugin/MedisalePluginFilter.m plugin/Info.plist
 		-framework Cocoa \
 		-o "$@" plugin/MedisalePluginFilter.m
 
-verify: all
+sign: all
+	codesign --force --sign - --timestamp=none "$(BUNDLE)"
+
+verify: sign
 	@file "$(EXECUTABLE)" | grep -q 'Mach-O 64-bit bundle arm64'
 	@otool -hv "$(EXECUTABLE)" | grep -q ARM64
 	@nm -u "$(EXECUTABLE)" | grep -q '_OBJC_CLASS_$$_PluginFilter'
@@ -28,7 +31,8 @@ verify: all
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :pluginType' "$(BUNDLE)/Contents/Info.plist")" = imageFilter
-	@echo "PASS: arm64 bundle uses the real PluginFilter runtime class"
+	@codesign --verify --strict --verbose=2 "$(BUNDLE)"
+	@echo "PASS: ad-hoc-signed arm64 bundle uses the real PluginFilter runtime class"
 
 clean:
 	rm -rf "$(BUILD_DIR)"

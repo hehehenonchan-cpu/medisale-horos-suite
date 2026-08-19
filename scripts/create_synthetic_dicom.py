@@ -64,7 +64,12 @@ def main() -> None:
         ]
     )
 
-    Path(sys.argv[1]).write_bytes(b"\0" * 128 + b"DICM" + meta + dataset)
+    output = Path(sys.argv[1])
+    try:
+        with output.open("xb") as stream:
+            stream.write(b"\0" * 128 + b"DICM" + meta + dataset)
+    except FileExistsError:
+        raise SystemExit(f"STOP: output already exists: {output}") from None
 
 
 if __name__ == "__main__":
