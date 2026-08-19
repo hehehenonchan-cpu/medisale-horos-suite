@@ -1,0 +1,34 @@
+HOROS_APP ?= /Applications/Horos.app
+HOROS_HEADERS := $(HOROS_APP)/Contents/Frameworks/Horos.framework/Versions/A/Headers
+BUILD_DIR := build
+BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
+EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
+
+.PHONY: all clean verify
+
+all: $(EXECUTABLE)
+
+$(EXECUTABLE): plugin/MedisalePluginFilter.m plugin/Info.plist
+	@test -f "$(HOROS_HEADERS)/PluginFilter.h" || { echo "STOP: real PluginFilter.h not found"; exit 20; }
+	mkdir -p "$(BUNDLE)/Contents/MacOS"
+	cp plugin/Info.plist "$(BUNDLE)/Contents/Info.plist"
+	clang -arch arm64 -fobjc-arc -fmodules -bundle -undefined dynamic_lookup \
+		-isysroot "$$(xcrun --sdk macosx --show-sdk-path)" \
+		-fmodules-cache-path="$(BUILD_DIR)/ModuleCache" \
+		-mmacosx-version-min=10.15 \
+		-I"$(HOROS_HEADERS)" \
+		-framework Cocoa \
+		-o "$@" plugin/MedisalePluginFilter.m
+
+verify: all
+	@file "$(EXECUTABLE)" | grep -q 'Mach-O 64-bit bundle arm64'
+	@otool -hv "$(EXECUTABLE)" | grep -q ARM64
+	@nm -u "$(EXECUTABLE)" | grep -q '_OBJC_CLASS_$$_PluginFilter'
+	@plutil -lint "$(BUNDLE)/Contents/Info.plist"
+	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
+	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
+	@test "$$(/usr/libexec/PlistBuddy -c 'Print :pluginType' "$(BUNDLE)/Contents/Info.plist")" = imageFilter
+	@echo "PASS: arm64 bundle uses the real PluginFilter runtime class"
+
+clean:
+	rm -rf "$(BUILD_DIR)"

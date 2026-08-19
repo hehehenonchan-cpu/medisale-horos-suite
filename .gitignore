@@ -11,3 +11,4 @@ xcuserdata/
 *.lic
 local-evidence/
 patient-data/
+/build/
