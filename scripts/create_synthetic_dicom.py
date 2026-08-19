@@ -25,13 +25,19 @@ def generated_uid() -> str:
 
 
 def main() -> None:
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: create_synthetic_dicom.py OUTPUT")
+    if len(sys.argv) not in {2, 3}:
+        raise SystemExit("usage: create_synthetic_dicom.py OUTPUT [CONTEXT_INDEX]")
 
     sop_class = "1.2.840.10008.5.1.4.1.1.7"
-    sop_instance = generated_uid()
-    study_instance = generated_uid()
-    series_instance = generated_uid()
+    context_index = int(sys.argv[2]) if len(sys.argv) == 3 else None
+    if context_index is not None and context_index not in {1, 2}:
+        raise SystemExit("CONTEXT_INDEX must be 1 or 2")
+    sop_instance = (f"2.25.90000000000000000000000000000000000{context_index}"
+                    if context_index is not None else generated_uid())
+    study_instance = ("2.25.800000000000000000000000000000000001"
+                      if context_index is not None else generated_uid())
+    series_instance = ("2.25.800000000000000000000000000000000002"
+                       if context_index is not None else generated_uid())
 
     meta_body = b"".join(
         [
@@ -44,7 +50,8 @@ def main() -> None:
     )
     meta = element(0x0002, 0x0000, b"UL", struct.pack("<I", len(meta_body))) + meta_body
 
-    pixels = bytes((row + column) % 256 for row in range(64) for column in range(64))
+    instance_number = context_index or 1
+    pixels = bytes((row + column + instance_number) % 256 for row in range(64) for column in range(64))
     dataset = b"".join(
         [
             element(0x0008, 0x0008, b"CS", b"DERIVED\\SECONDARY"),
@@ -56,11 +63,12 @@ def main() -> None:
             element(0x0020, 0x000D, b"UI", ui(study_instance)),
             element(0x0020, 0x000E, b"UI", ui(series_instance)),
             element(0x0020, 0x0011, b"IS", b"1"),
-            element(0x0020, 0x0013, b"IS", b"1"),
+            element(0x0020, 0x0013, b"IS", str(instance_number).encode("ascii")),
             element(0x0028, 0x0002, b"US", struct.pack("<H", 1)),
             element(0x0028, 0x0004, b"CS", b"MONOCHROME2"),
             element(0x0028, 0x0010, b"US", struct.pack("<H", 64)),
             element(0x0028, 0x0011, b"US", struct.pack("<H", 64)),
+            element(0x0028, 0x0030, b"DS", b"0.5\\0.75"),
             element(0x0028, 0x0100, b"US", struct.pack("<H", 8)),
             element(0x0028, 0x0101, b"US", struct.pack("<H", 8)),
             element(0x0028, 0x0102, b"US", struct.pack("<H", 7)),
