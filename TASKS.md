@@ -12,7 +12,7 @@
 | ID | Title | Status | Dependency | Primary evidence |
 |---|---|---|---|---|
 | P1-01 | Horos 4.0.1 Platform Baseline | **GO / READY** | Target Mac available | `docs/platform/HOROS_4_0_1_BASELINE.md` |
-| P1-02 | Real PluginFilter Skeleton | BLOCKED | P1-01 PASS | Plugin executes `Medisale Plugin OK` |
+| P1-02 | Real PluginFilter Skeleton | **PASS / REVIEW** | P1-01 PASS | Plugin executes `Medisale Plugin OK` |
 | P1-03 | Viewer Toolbar PoC | BLOCKED | P1-02 PASS | Correct viewer-bound toolbar action |
 | P1-04 | Browser Toolbar PoC | BLOCKED | P1-03 PASS | Read-only selection context tests |
 | P1-05 | HorosAdapter Foundation | BLOCKED | P1-04 PASS | Independent `ImageContext` output |
