@@ -1,0 +1,13 @@
+.DS_Store
+DerivedData/
+*.xcuserstate
+xcuserdata/
+*.dcm
+*.dicom
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.license
+*.lic
+local-evidence/
+patient-data/
