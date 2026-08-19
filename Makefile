@@ -27,6 +27,8 @@ verify: sign
 	@file "$(EXECUTABLE)" | grep -q 'Mach-O 64-bit bundle arm64'
 	@otool -hv "$(EXECUTABLE)" | grep -q ARM64
 	@nm -u "$(EXECUTABLE)" | grep -q '_OBJC_CLASS_$$_PluginFilter'
+	@nm "$(EXECUTABLE)" | grep -q 'toolbarAllowedIdentifiersForViewer:'
+	@nm "$(EXECUTABLE)" | grep -q 'toolbarItemForItemIdentifier:forViewer:'
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
