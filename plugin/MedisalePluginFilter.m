@@ -6,15 +6,18 @@
 #import "HorosAdapter.h"
 #import "ImageContext.h"
 #import "MeasurementContextConsumer.h"
+#import "TwoPointInputController.h"
 
 static NSString *const MedisaleViewerToolbarIdentifier = @"jp.medisale.horos.viewer-toolbar-test";
 static NSString *const MedisaleBrowserToolbarIdentifier = @"jp.medisale.horos.browser-toolbar-test";
 static NSString *const MedisaleContextToolbarIdentifier = @"jp.medisale.horos.image-context-test";
+static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.two-point-test";
 
 @interface MedisalePluginFilter : PluginFilter {
     NSMapTable<NSToolbarItem *, id> *_viewerByToolbarItem;
     NSMapTable<id, NSNumber *> *_viewerNumberByViewer;
     NSMapTable<NSToolbarItem *, BrowserController *> *_browserByToolbarItem;
+    NSMapTable<ViewerController *, TwoPointInputController *> *_inputByViewer;
     NSUInteger _nextViewerNumber;
 }
 @end
@@ -26,7 +29,7 @@ static NSString *const MedisaleContextToolbarIdentifier = @"jp.medisale.horos.im
     (void)menuName;
 
     if (viewerController != nil) {
-        [self showImageContextForViewer:viewerController];
+        [self startTwoPointInputForViewer:viewerController];
         return 0;
     }
 
@@ -38,6 +41,61 @@ static NSString *const MedisaleContextToolbarIdentifier = @"jp.medisale.horos.im
     return 0;
 }
 
+- (void)startTwoPointInputForViewer:(ViewerController *)controller
+{
+    if (_inputByViewer == nil) {
+        _inputByViewer = [NSMapTable weakToStrongObjectsMapTable];
+    }
+    TwoPointInputController *existing = [_inputByViewer objectForKey:controller];
+    [existing cancel];
+    NSNumber *viewerNumber = [self viewerNumberForViewer:controller];
+
+    __weak typeof(self) weakSelf = self;
+    __weak ViewerController *weakViewer = controller;
+    TwoPointInputController *input = [[TwoPointInputController alloc]
+        initWithViewer:controller
+        completion:^(BOOL cancelled, NSArray<NSValue *> *points) {
+            typeof(self) self = weakSelf;
+            ViewerController *viewer = weakViewer;
+            if (self == nil) {
+                return;
+            }
+            [self->_inputByViewer removeObjectForKey:viewer];
+            NSAlert *result = [[NSAlert alloc] init];
+            if (cancelled) {
+                result.messageText = @"Two Point Input Cancelled";
+                result.informativeText = [NSString stringWithFormat:
+                    @"Viewer %@\nCaptured: %lu", viewerNumber,
+                    (unsigned long)points.count];
+            } else {
+                NSPoint a = points[0].pointValue;
+                NSPoint b = points[1].pointValue;
+                result.messageText = @"Two Point Input OK";
+                result.informativeText = [NSString stringWithFormat:
+                    @"Viewer %@\nA: %.3f, %.3f\nB: %.3f, %.3f",
+                    viewerNumber, a.x, a.y, b.x, b.y];
+            }
+            [result addButtonWithTitle:@"OK"];
+            [result runModal];
+        }];
+    [_inputByViewer setObject:input forKey:controller];
+    [input start];
+
+    NSAlert *ready = [[NSAlert alloc] init];
+    ready.messageText = @"Two Point Input Ready";
+    ready.informativeText = [NSString stringWithFormat:
+        @"Viewer %@\nClick two points inside this Viewer. Press Escape to cancel.",
+        viewerNumber];
+    [ready addButtonWithTitle:@"OK"];
+    [ready addButtonWithTitle:@"Duplicate Viewer"];
+    if ([ready runModal] == NSAlertSecondButtonReturn) {
+        ViewerController *previousViewerController = viewerController;
+        viewerController = controller;
+        [self duplicateCurrent2DViewerWindow];
+        viewerController = previousViewerController;
+    }
+}
+
 - (BOOL)isCertifiedForMedicalImaging
 {
     return NO;
@@ -46,13 +104,15 @@ static NSString *const MedisaleContextToolbarIdentifier = @"jp.medisale.horos.im
 - (NSArray *)toolbarAllowedIdentifiersForViewer:(id)controller
 {
     (void)controller;
-    return @[MedisaleViewerToolbarIdentifier, MedisaleContextToolbarIdentifier];
+    return @[MedisaleViewerToolbarIdentifier, MedisaleContextToolbarIdentifier,
+             MedisaleTwoPointToolbarIdentifier];
 }
 
 - (NSToolbarItem *)toolbarItemForItemIdentifier:(NSString *)identifier forViewer:(id)controller
 {
     if ((! [identifier isEqualToString:MedisaleViewerToolbarIdentifier] &&
-         ![identifier isEqualToString:MedisaleContextToolbarIdentifier]) || controller == nil) {
+         ![identifier isEqualToString:MedisaleContextToolbarIdentifier] &&
+         ![identifier isEqualToString:MedisaleTwoPointToolbarIdentifier]) || controller == nil) {
         return nil;
     }
 
@@ -60,17 +120,31 @@ static NSString *const MedisaleContextToolbarIdentifier = @"jp.medisale.horos.im
 
     NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:identifier];
     BOOL contextItem = [identifier isEqualToString:MedisaleContextToolbarIdentifier];
-    item.label = contextItem ? @"Medisale Context" : @"Medisale Test";
+    BOOL twoPointItem = [identifier isEqualToString:MedisaleTwoPointToolbarIdentifier];
+    item.label = contextItem ? @"Medisale Context" :
+        (twoPointItem ? @"Medisale Two Points" : @"Medisale Test");
     item.paletteLabel = item.label;
-    item.toolTip = contextItem ? @"Create an independent ImageContext" : @"Verify the owning Viewer";
+    item.toolTip = contextItem ? @"Create an independent ImageContext" :
+        (twoPointItem ? @"Capture two image-coordinate points" : @"Verify the owning Viewer");
     item.image = [NSImage imageNamed:NSImageNameActionTemplate];
     item.target = self;
-    item.action = contextItem ? @selector(showImageContext:) : @selector(showViewerToolbarOK:);
+    item.action = contextItem ? @selector(showImageContext:) :
+        (twoPointItem ? @selector(startTwoPointInput:) : @selector(showViewerToolbarOK:));
 
     [_viewerByToolbarItem setObject:controller forKey:item];
     [self viewerNumberForViewer:controller];
 
     return item;
+}
+
+- (void)startTwoPointInput:(id)sender
+{
+    ViewerController *controller = [sender isKindOfClass:[NSToolbarItem class]]
+        ? [_viewerByToolbarItem objectForKey:sender]
+        : nil;
+    if (controller != nil) {
+        [self startTwoPointInputForViewer:controller];
+    }
 }
 
 - (void)showImageContext:(id)sender

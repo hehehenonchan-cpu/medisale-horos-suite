@@ -3,7 +3,7 @@ HOROS_HEADERS := $(HOROS_APP)/Contents/Frameworks/Horos.framework/Versions/A/Hea
 BUILD_DIR := build
 BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
 EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
-SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m
+SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m
 
 .PHONY: all clean sign verify
 
@@ -35,6 +35,7 @@ verify: sign
 	@nm "$(EXECUTABLE)" | grep -q 'databaseSelection'
 	@nm "$(EXECUTABLE)" | grep -q 'currentImage'
 	@nm "$(EXECUTABLE)" | grep -q 'imageContextForViewer:error:'
+	@nm "$(EXECUTABLE)" | grep -q 'mouseXPos'
 	@! rg -q 'ViewerController|DCMPix|DicomImage|NSManagedObject|ROI' plugin/ImageContext.h plugin/ImageContext.m plugin/MeasurementContextConsumer.h plugin/MeasurementContextConsumer.m
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
