@@ -5,7 +5,9 @@
 #import <PluginFilter.h>
 #import "HorosAdapter.h"
 #import "ImageContext.h"
+#import "LineOverlayModel.h"
 #import "MeasurementContextConsumer.h"
+#import "TransientLineOverlayController.h"
 #import "TwoPointInputController.h"
 
 static NSString *const MedisaleViewerToolbarIdentifier = @"jp.medisale.horos.viewer-toolbar-test";
@@ -18,6 +20,7 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     NSMapTable<id, NSNumber *> *_viewerNumberByViewer;
     NSMapTable<NSToolbarItem *, BrowserController *> *_browserByToolbarItem;
     NSMapTable<ViewerController *, TwoPointInputController *> *_inputByViewer;
+    NSMapTable<ViewerController *, TransientLineOverlayController *> *_overlayByViewer;
     NSUInteger _nextViewerNumber;
 }
 @end
@@ -43,6 +46,17 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
 
 - (void)startTwoPointInputForViewer:(ViewerController *)controller
 {
+    NSError *contextError = nil;
+    ImageContext *inputIdentity = [HorosAdapter imageContextForViewer:controller
+                                                                error:&contextError];
+    if (inputIdentity == nil) {
+        NSAlert *stop = [[NSAlert alloc] init];
+        stop.messageText = @"Transient Overlay STOP";
+        stop.informativeText = contextError.localizedDescription;
+        [stop addButtonWithTitle:@"OK"];
+        [stop runModal];
+        return;
+    }
     if (_inputByViewer == nil) {
         _inputByViewer = [NSMapTable weakToStrongObjectsMapTable];
     }
@@ -63,14 +77,65 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
             [self->_inputByViewer removeObjectForKey:viewer];
             NSAlert *result = [[NSAlert alloc] init];
             if (cancelled) {
-                result.messageText = @"Two Point Input Cancelled";
+                result.messageText = @"Overlay Input Cancelled";
                 result.informativeText = [NSString stringWithFormat:
                     @"Viewer %@\nCaptured: %lu", viewerNumber,
                     (unsigned long)points.count];
             } else {
                 NSPoint a = points[0].pointValue;
                 NSPoint b = points[1].pointValue;
-                result.messageText = @"Two Point Input OK";
+                NSError *currentError = nil;
+                ImageContext *currentIdentity = viewer == nil ? nil :
+                    [HorosAdapter imageContextForViewer:viewer error:&currentError];
+                BOOL sameImage = currentIdentity != nil &&
+                    [currentIdentity.sopInstanceUID isEqualToString:inputIdentity.sopInstanceUID] &&
+                    currentIdentity.frameNumber == inputIdentity.frameNumber;
+                if (!sameImage) {
+                    result.messageText = @"Transient Overlay STOP";
+                    result.informativeText = currentError.localizedDescription ?:
+                        @"The displayed image or frame changed during point input.";
+                    [result addButtonWithTitle:@"OK"];
+                    [result runModal];
+                    return;
+                }
+
+                if (self->_overlayByViewer == nil) {
+                    self->_overlayByViewer = [NSMapTable weakToStrongObjectsMapTable];
+                }
+                TransientLineOverlayController *previous =
+                    [self->_overlayByViewer objectForKey:viewer];
+                [self->_overlayByViewer removeObjectForKey:viewer];
+                [previous invalidate];
+
+                LineOverlayModel *model = [[LineOverlayModel alloc]
+                    initWithPointA:a pointB:b imageIdentity:currentIdentity];
+                __block __weak TransientLineOverlayController *weakOverlay = nil;
+                TransientLineOverlayController *overlay =
+                    [[TransientLineOverlayController alloc]
+                        initWithViewer:viewer
+                                 model:model
+                          invalidation:^{
+                    typeof(self) self = weakSelf;
+                    ViewerController *viewer = weakViewer;
+                    TransientLineOverlayController *overlay = weakOverlay;
+                    if (self != nil && viewer != nil &&
+                        [self->_overlayByViewer objectForKey:viewer] == overlay) {
+                        [self->_overlayByViewer removeObjectForKey:viewer];
+                    }
+                }];
+                weakOverlay = overlay;
+                [self->_overlayByViewer setObject:overlay forKey:viewer];
+                if (![overlay start]) {
+                    [self->_overlayByViewer removeObjectForKey:viewer];
+                    [overlay invalidate];
+                    result.messageText = @"Transient Overlay STOP";
+                    result.informativeText = @"The overlay could not bind to the current image.";
+                    [result addButtonWithTitle:@"OK"];
+                    [result runModal];
+                    return;
+                }
+
+                result.messageText = @"Transient Overlay OK";
                 result.informativeText = [NSString stringWithFormat:
                     @"Viewer %@\nA: %.3f, %.3f\nB: %.3f, %.3f",
                     viewerNumber, a.x, a.y, b.x, b.y];
@@ -82,9 +147,9 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     [input start];
 
     NSAlert *ready = [[NSAlert alloc] init];
-    ready.messageText = @"Two Point Input Ready";
+    ready.messageText = @"Transient Overlay Ready";
     ready.informativeText = [NSString stringWithFormat:
-        @"Viewer %@\nClick two points inside this Viewer. Press Escape to cancel.",
+        @"Viewer %@\nClick two points inside this Viewer to draw a transient line. Press Escape to cancel.",
         viewerNumber];
     [ready addButtonWithTitle:@"OK"];
     [ready addButtonWithTitle:@"Duplicate Viewer"];
@@ -122,10 +187,10 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     BOOL contextItem = [identifier isEqualToString:MedisaleContextToolbarIdentifier];
     BOOL twoPointItem = [identifier isEqualToString:MedisaleTwoPointToolbarIdentifier];
     item.label = contextItem ? @"Medisale Context" :
-        (twoPointItem ? @"Medisale Two Points" : @"Medisale Test");
+        (twoPointItem ? @"Medisale Overlay" : @"Medisale Test");
     item.paletteLabel = item.label;
     item.toolTip = contextItem ? @"Create an independent ImageContext" :
-        (twoPointItem ? @"Capture two image-coordinate points" : @"Verify the owning Viewer");
+        (twoPointItem ? @"Draw a transient line from two image-coordinate points" : @"Verify the owning Viewer");
     item.image = [NSImage imageNamed:NSImageNameActionTemplate];
     item.target = self;
     item.action = contextItem ? @selector(showImageContext:) :
