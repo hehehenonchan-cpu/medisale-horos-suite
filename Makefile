@@ -3,7 +3,7 @@ HOROS_HEADERS := $(HOROS_APP)/Contents/Frameworks/Horos.framework/Versions/A/Hea
 BUILD_DIR := build
 BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
 EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
-SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m
+SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m
 
 .PHONY: all clean sign verify
 
@@ -36,7 +36,10 @@ verify: sign
 	@nm "$(EXECUTABLE)" | grep -q 'currentImage'
 	@nm "$(EXECUTABLE)" | grep -q 'imageContextForViewer:error:'
 	@nm "$(EXECUTABLE)" | grep -q 'mouseXPos'
+	@nm "$(EXECUTABLE)" | grep -q 'ConvertFromGL2NSView'
+	@nm "$(EXECUTABLE)" | grep -q 'OsirixDCMViewIndexChangedNotification'
 	@! rg -q 'ViewerController|DCMPix|DicomImage|NSManagedObject|ROI' plugin/ImageContext.h plugin/ImageContext.m plugin/MeasurementContextConsumer.h plugin/MeasurementContextConsumer.m
+	@! rg -q 'NSManagedObject|NSUserDefaults|standardUserDefaults|addROI|setROI|saveDocument|writeToFile|sqlite3_|DicomDatabase' plugin/LineOverlayModel.h plugin/LineOverlayModel.m plugin/TransientLineOverlayController.h plugin/TransientLineOverlayController.m
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
