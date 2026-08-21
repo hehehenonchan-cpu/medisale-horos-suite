@@ -18,8 +18,8 @@
 | P1-05 | HorosAdapter Foundation | **PASS / COMPLETE** | P1-04 PASS | Independent `ImageContext` output |
 | P1-06 | Two Point Input | **PASS / COMPLETE** | P1-05 PASS | Image-coordinate input |
 | P1-07 | Overlay Renderer | **PASS / COMPLETE** | P1-06 PASS | Zoom/pan/resize tracking |
-| P1-08 | Endpoint Editing | **PASS / REVIEW** | P1-07 PASS | Editable endpoints without tool conflict |
-| P1-09 | Measurement Panel Host Spike | BLOCKED | P1-08 PASS | Stable docked panel or inspector fallback |
+| P1-08 | Endpoint Editing | **PASS / COMPLETE** | P1-07 PASS | Editable endpoints without tool conflict |
+| P1-09 | Measurement Panel Host Spike | **PASS / REVIEW** | P1-08 PASS | Stable docked panel or inspector fallback |
 | P1-10 | Guide Engine PoC | BLOCKED | P1-09 PASS | Persistent guide preference and short instructions |
 | P1-11 | Spike Persistence | BLOCKED | P1-10 PASS | Transactional standalone SQLite store |
 | P1-12 | Reload / Restore | BLOCKED | P1-11 PASS | SOP UID + frame exact restore |
