@@ -9,6 +9,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (instancetype)initWithViewer:(ViewerController *)viewer
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
+                persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
                     invalidation:(MedisalePanelHostInvalidation)invalidation NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 

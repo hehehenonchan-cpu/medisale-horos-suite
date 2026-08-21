@@ -3,9 +3,10 @@ HOROS_HEADERS := $(HOROS_APP)/Contents/Frameworks/Horos.framework/Versions/A/Hea
 BUILD_DIR := build
 BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
 EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
-SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m plugin/GuidePreferenceStore.m plugin/GuideEngine.m plugin/ViewerInspectorPanelHost.m
+SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m plugin/GuidePreferenceStore.m plugin/GuideEngine.m plugin/MeasurementRecord.m plugin/SQLiteMeasurementStore.m plugin/ViewerInspectorPanelHost.m
+PERSISTENCE_TEST := $(BUILD_DIR)/PersistenceStoreTests
 
-.PHONY: all clean sign verify
+.PHONY: all clean sign verify test-persistence
 
 all: $(EXECUTABLE)
 
@@ -19,6 +20,7 @@ $(EXECUTABLE): $(SOURCES) plugin/Info.plist
 		-mmacosx-version-min=10.15 \
 		-I"$(HOROS_HEADERS)" \
 		-framework Cocoa \
+		-lsqlite3 \
 		-o "$@" $(SOURCES)
 
 sign: all
@@ -54,6 +56,14 @@ verify: sign
 	@rg -q 'kCFPreferencesAnyHost' plugin/GuidePreferenceStore.m
 	@! rg -q 'kCFPreferencesAnyUser|kCFPreferencesCurrentHost|kCFPreferencesAnyApplication|NSUserDefaults|standardUserDefaults' plugin/GuidePreferenceStore.h plugin/GuidePreferenceStore.m plugin/GuideEngine.h plugin/GuideEngine.m
 	@rg -q 'ViewerInspectorPanelHost' plugin/MedisalePluginFilter.m plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
+	@rg -q '@protocol MeasurementPersistenceStore' plugin/MeasurementPersistenceStore.h
+	@rg -q 'BEGIN IMMEDIATE' plugin/SQLiteMeasurementStore.m
+	@rg -q 'ROLLBACK' plugin/SQLiteMeasurementStore.m
+	@rg -q 'sqlite3_prepare_v2' plugin/SQLiteMeasurementStore.m
+	@rg -q 'PRAGMA foreign_keys = ON' plugin/SQLiteMeasurementStore.m
+	@! rg -q 'ViewerController|DCMPix|DicomImage|NSManagedObject|ROI' plugin/MeasurementRecord.h plugin/MeasurementRecord.m plugin/MeasurementPersistenceStore.h plugin/SQLiteMeasurementStore.h plugin/SQLiteMeasurementStore.m
+	@! rg -q 'sqlite3_|BEGIN IMMEDIATE|COMMIT|ROLLBACK|CREATE TABLE|INSERT INTO|UPDATE ' plugin/MedisalePluginFilter.m plugin/ViewerInspectorPanelHost.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m
+	@! rg -qi 'patient.?name|patient.?id|birth.?date|thumbnail|pixel.?data|study.?name|series.?name|dicom.?path' plugin/MeasurementRecord.h plugin/MeasurementRecord.m plugin/MeasurementPersistenceStore.h plugin/SQLiteMeasurementStore.h plugin/SQLiteMeasurementStore.m
 	@! rg -q 'method_exchangeImplementations|object_getIvar|class_getInstanceVariable|valueForKey.*split|viewer\.(splitView|contentView)|->(splitView|contentView)' plugin/MeasurementPanelHost.h plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
 	@! rg -q 'NSManagedObject|NSUserDefaults|standardUserDefaults|CFPreferences|GuidePreferenceStore|addROI|setROI|saveDocument|writeToFile|sqlite3_|DicomDatabase|NSURLSession|NSURLConnection' plugin/MeasurementPanelHost.h plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
 	@! rg -qi 'VHS|VLAS|CTR|diagnos|normal value|abnormal' plugin/GuideEngine.h plugin/GuideEngine.m plugin/GuidePreferenceStore.h plugin/GuidePreferenceStore.m
@@ -62,7 +72,20 @@ verify: sign
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :pluginType' "$(BUNDLE)/Contents/Info.plist")" = imageFilter
 	@codesign --verify --strict --verbose=2 "$(BUNDLE)"
+	@$(MAKE) --no-print-directory test-persistence
 	@echo "PASS: ad-hoc-signed arm64 bundle uses the real PluginFilter runtime class"
+
+$(PERSISTENCE_TEST): tests/PersistenceStoreTests.m plugin/ImageContext.m plugin/MeasurementRecord.m plugin/SQLiteMeasurementStore.m
+	mkdir -p "$(BUILD_DIR)"
+	clang -arch arm64 -fobjc-arc -fmodules \
+		-isysroot "$$(xcrun --sdk macosx --show-sdk-path)" \
+		-fmodules-cache-path="$(BUILD_DIR)/ModuleCache" \
+		-mmacosx-version-min=10.15 \
+		-Iplugin -framework Foundation -lsqlite3 \
+		-o "$@" $^
+
+test-persistence: $(PERSISTENCE_TEST)
+	@"$(PERSISTENCE_TEST)"
 
 clean:
 	rm -rf "$(BUILD_DIR)"
