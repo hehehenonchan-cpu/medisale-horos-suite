@@ -2,6 +2,8 @@
 
 #import "GuideEngine.h"
 #import "LineOverlayModel.h"
+#import "MeasurementPersistenceStore.h"
+#import "MeasurementRecord.h"
 #import <ViewerController.h>
 
 static NSString *MedisaleInputStateText(LineOverlayInputState state)
@@ -25,6 +27,9 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
 @property(nonatomic, weak) ViewerController *viewer;
 @property(nonatomic, strong) LineOverlayModel *model;
 @property(nonatomic, strong) GuideEngine *guideEngine;
+@property(nonatomic, strong) id<MeasurementPersistenceStore> persistenceStore;
+@property(nonatomic, copy) NSString *measurementID;
+@property(nonatomic, copy) NSDate *createdAt;
 @property(nonatomic, copy) MedisalePanelHostInvalidation invalidation;
 @property(nonatomic, strong) NSPanel *panel;
 @property(nonatomic, strong) NSTextField *pointAField;
@@ -35,9 +40,14 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
 @property(nonatomic, strong) NSTextField *shortInstructionsField;
 @property(nonatomic, strong) NSButton *detailedGuideToggle;
 @property(nonatomic, strong) NSTextField *detailedInstructionsField;
+@property(nonatomic, strong) NSButton *saveButton;
+@property(nonatomic, strong) NSTextField *saveStatusField;
 @property(nonatomic, strong) NSMutableArray *observers;
 @property(nonatomic, readwrite, getter=isBound) BOOL bound;
 @property(nonatomic) BOOL userClosed;
+@property(nonatomic) BOOL hasSaved;
+@property(nonatomic) NSPoint savedPointA;
+@property(nonatomic) NSPoint savedPointB;
 @end
 
 @implementation ViewerInspectorPanelHost
@@ -45,6 +55,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
 - (instancetype)initWithViewer:(ViewerController *)viewer
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
+                persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
                     invalidation:(MedisalePanelHostInvalidation)invalidation
 {
     self = [super init];
@@ -52,6 +63,9 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
         _viewer = viewer;
         _model = model;
         _guideEngine = guideEngine;
+        _persistenceStore = persistenceStore;
+        _measurementID = NSUUID.UUID.UUIDString;
+        _createdAt = [NSDate date];
         _invalidation = [invalidation copy];
         _observers = [NSMutableArray array];
     }
@@ -68,7 +82,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     ViewerController *viewer = self.viewer;
     NSWindow *viewerWindow = viewer.window;
     if (viewer == nil || viewerWindow == nil || self.model == nil ||
-        self.guideEngine == nil) {
+        self.guideEngine == nil || self.persistenceStore == nil) {
         return NO;
     }
     if (self.panel == nil) {
@@ -85,7 +99,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
 
 - (void)buildPanel
 {
-    NSRect frame = NSMakeRect(0.0, 0.0, 370.0, 470.0);
+    NSRect frame = NSMakeRect(0.0, 0.0, 370.0, 550.0);
     NSWindowStyleMask style = NSWindowStyleMaskTitled |
         NSWindowStyleMaskClosable |
         NSWindowStyleMaskUtilityWindow |
@@ -127,11 +141,17 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     self.detailedInstructionsField.textColor = NSColor.secondaryLabelColor;
     self.detailedInstructionsField.lineBreakMode = NSLineBreakByWordWrapping;
     self.detailedInstructionsField.maximumNumberOfLines = 0;
+    self.saveButton = [NSButton buttonWithTitle:@"Save spike measurement"
+                                         target:self
+                                         action:@selector(saveMeasurement:)];
+    self.saveStatusField = [NSTextField labelWithString:@"Not saved"];
+    self.saveStatusField.textColor = NSColor.secondaryLabelColor;
 
     NSArray<NSTextField *> *fields = @[
         heading, self.pointAField, self.pointBField,
         self.distanceField, self.stateField, self.bindingField,
-        shortHeading, self.shortInstructionsField, self.detailedInstructionsField
+        shortHeading, self.shortInstructionsField, self.detailedInstructionsField,
+        self.saveStatusField
     ];
     for (NSTextField *field in fields) {
         field.translatesAutoresizingMaskIntoConstraints = NO;
@@ -140,6 +160,8 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     }
     self.detailedGuideToggle.translatesAutoresizingMaskIntoConstraints = NO;
     [content addSubview:self.detailedGuideToggle];
+    self.saveButton.translatesAutoresizingMaskIntoConstraints = NO;
+    [content addSubview:self.saveButton];
     self.pointAField.font = [NSFont monospacedDigitSystemFontOfSize:13.0
                                                              weight:NSFontWeightRegular];
     self.pointBField.font = self.pointAField.font;
@@ -176,7 +198,12 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
         [self.detailedInstructionsField.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
         [self.detailedInstructionsField.trailingAnchor constraintEqualToAnchor:heading.trailingAnchor],
         [self.detailedInstructionsField.topAnchor constraintEqualToAnchor:self.detailedGuideToggle.bottomAnchor constant:8.0],
-        [self.detailedInstructionsField.bottomAnchor constraintLessThanOrEqualToAnchor:content.bottomAnchor constant:-18.0],
+        [self.saveButton.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+        [self.saveButton.topAnchor constraintGreaterThanOrEqualToAnchor:self.detailedInstructionsField.bottomAnchor constant:16.0],
+        [self.saveStatusField.leadingAnchor constraintEqualToAnchor:heading.leadingAnchor],
+        [self.saveStatusField.trailingAnchor constraintEqualToAnchor:heading.trailingAnchor],
+        [self.saveStatusField.topAnchor constraintEqualToAnchor:self.saveButton.bottomAnchor constant:8.0],
+        [self.saveStatusField.bottomAnchor constraintLessThanOrEqualToAnchor:content.bottomAnchor constant:-18.0],
     ]];
     self.panel = panel;
 }
@@ -260,7 +287,48 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     self.bindingField.stringValue = self.bound
         ? @"Binding   owning Viewer / current synthetic image"
         : @"Binding   unbound";
+    self.saveButton.enabled = model.inputState == LineOverlayInputStateComplete;
+    if (self.hasSaved) {
+        BOOL unchanged = NSEqualPoints(model.pointA, self.savedPointA) &&
+            NSEqualPoints(model.pointB, self.savedPointB);
+        self.saveStatusField.stringValue = unchanged
+            ? @"Save OK" : @"Unsaved endpoint changes";
+    }
     [self updateGuideFields];
+}
+
+- (void)saveMeasurement:(id)sender
+{
+    (void)sender;
+    LineOverlayModel *model = self.model;
+    if (model == nil || model.inputState != LineOverlayInputStateComplete) {
+        self.saveStatusField.stringValue = @"Save unavailable while editing";
+        NSBeep();
+        return;
+    }
+    NSDate *updatedAt = [NSDate date];
+    MeasurementRecord *record = [[MeasurementRecord alloc]
+        initWithMeasurementID:self.measurementID
+                 imageContext:model.imageIdentity
+                    endpointAX:model.pointA.x
+                    endpointAY:model.pointA.y
+                    endpointBX:model.pointB.x
+                    endpointBY:model.pointB.y
+                  pixelDistance:model.pixelDistance
+                  schemaVersion:MedisaleMeasurementSchemaVersion
+                      createdAt:self.createdAt
+                      updatedAt:updatedAt];
+    NSError *error = nil;
+    if (![self.persistenceStore saveMeasurement:record error:&error]) {
+        (void)error;
+        self.saveStatusField.stringValue = @"Save failed; no record committed";
+        NSBeep();
+        return;
+    }
+    self.hasSaved = YES;
+    self.savedPointA = model.pointA;
+    self.savedPointB = model.pointB;
+    self.saveStatusField.stringValue = @"Save OK";
 }
 
 - (void)updateGuideFields
@@ -339,8 +407,13 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     self.shortInstructionsField = nil;
     self.detailedGuideToggle = nil;
     self.detailedInstructionsField = nil;
+    self.saveButton = nil;
+    self.saveStatusField = nil;
     self.model = nil;
     self.guideEngine = nil;
+    self.persistenceStore = nil;
+    self.measurementID = nil;
+    self.createdAt = nil;
     self.viewer = nil;
 
     MedisalePanelHostInvalidation invalidation = self.invalidation;

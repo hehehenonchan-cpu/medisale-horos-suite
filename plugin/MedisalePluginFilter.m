@@ -10,6 +10,8 @@
 #import "LineOverlayModel.h"
 #import "MeasurementPanelHost.h"
 #import "MeasurementContextConsumer.h"
+#import "MeasurementPersistenceStore.h"
+#import "SQLiteMeasurementStore.h"
 #import "TransientLineOverlayController.h"
 #import "TwoPointInputController.h"
 #import "ViewerInspectorPanelHost.h"
@@ -27,11 +29,20 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     NSMapTable<ViewerController *, TransientLineOverlayController *> *_overlayByViewer;
     NSMapTable<ViewerController *, id<MeasurementPanelHost>> *_panelByViewer;
     GuideEngine *_guideEngine;
+    id<MeasurementPersistenceStore> _measurementStore;
     NSUInteger _nextViewerNumber;
 }
 @end
 
 @implementation MedisalePluginFilter
+
+- (id<MeasurementPersistenceStore>)measurementStoreWithError:(NSError **)error
+{
+    if (_measurementStore == nil) {
+        _measurementStore = [SQLiteMeasurementStore pluginOwnedStoreWithError:error];
+    }
+    return _measurementStore;
+}
 
 - (GuideEngine *)guideEngine
 {
@@ -172,11 +183,25 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                 if (self->_panelByViewer == nil) {
                     self->_panelByViewer = [NSMapTable weakToStrongObjectsMapTable];
                 }
+                NSError *storeError = nil;
+                id<MeasurementPersistenceStore> persistenceStore =
+                    [self measurementStoreWithError:&storeError];
+                if (persistenceStore == nil) {
+                    [self->_overlayByViewer removeObjectForKey:viewer];
+                    [overlay invalidate];
+                    result.messageText = @"Measurement Store STOP";
+                    result.informativeText = storeError.localizedDescription ?:
+                        @"The standalone measurement store could not be opened safely.";
+                    [result addButtonWithTitle:@"OK"];
+                    [result runModal];
+                    return;
+                }
                 __block __weak id<MeasurementPanelHost> weakPanel = nil;
                 id<MeasurementPanelHost> panel = [[ViewerInspectorPanelHost alloc]
                     initWithViewer:viewer
                              model:model
                        guideEngine:[self guideEngine]
+                  persistenceStore:persistenceStore
                       invalidation:^{
                     typeof(self) self = weakSelf;
                     ViewerController *viewer = weakViewer;

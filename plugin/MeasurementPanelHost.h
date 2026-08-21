@@ -3,6 +3,7 @@
 @class LineOverlayModel;
 @class GuideEngine;
 @class ViewerController;
+@protocol MeasurementPersistenceStore;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -16,6 +17,7 @@ typedef void (^MedisalePanelHostInvalidation)(void);
 - (instancetype)initWithViewer:(ViewerController *)viewer
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
+                persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
                     invalidation:(MedisalePanelHostInvalidation)invalidation;
 - (BOOL)present;
 - (void)invalidate;
