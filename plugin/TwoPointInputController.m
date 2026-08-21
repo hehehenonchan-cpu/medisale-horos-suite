@@ -98,6 +98,21 @@
     [self finishCancelled:YES];
 }
 
+- (void)invalidate
+{
+    if (self.eventMonitor != nil) {
+        [NSEvent removeMonitor:self.eventMonitor];
+        self.eventMonitor = nil;
+    }
+    if (self.windowCloseObserver != nil) {
+        [[NSNotificationCenter defaultCenter] removeObserver:self.windowCloseObserver];
+        self.windowCloseObserver = nil;
+    }
+    self.completion = nil;
+    [self.capturedPoints removeAllObjects];
+    self.viewer = nil;
+}
+
 - (void)finishCancelled:(BOOL)cancelled
 {
     if (self.eventMonitor != nil) {
@@ -117,12 +132,7 @@
 
 - (void)dealloc
 {
-    if (_eventMonitor != nil) {
-        [NSEvent removeMonitor:_eventMonitor];
-    }
-    if (_windowCloseObserver != nil) {
-        [[NSNotificationCenter defaultCenter] removeObserver:_windowCloseObserver];
-    }
+    [self invalidate];
 }
 
 @end

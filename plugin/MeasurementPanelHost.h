@@ -2,6 +2,7 @@
 
 @class LineOverlayModel;
 @class GuideEngine;
+@class MeasurementRecord;
 @class ViewerController;
 @protocol MeasurementPersistenceStore;
 
@@ -18,6 +19,7 @@ typedef void (^MedisalePanelHostInvalidation)(void);
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
                 persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
+             existingMeasurement:(nullable MeasurementRecord *)existingMeasurement
                     invalidation:(MedisalePanelHostInvalidation)invalidation;
 - (BOOL)present;
 - (void)invalidate;

@@ -61,6 +61,12 @@ verify: sign
 	@rg -q 'ROLLBACK' plugin/SQLiteMeasurementStore.m
 	@rg -q 'sqlite3_prepare_v2' plugin/SQLiteMeasurementStore.m
 	@rg -q 'PRAGMA foreign_keys = ON' plugin/SQLiteMeasurementStore.m
+	@rg -q 'SQLITE_OPEN_READONLY' plugin/SQLiteMeasurementStore.m
+	@rg -q 'PRAGMA query_only = ON' plugin/SQLiteMeasurementStore.m
+	@rg -q 'latestMeasurementForImageContext' plugin/MeasurementPersistenceStore.h plugin/SQLiteMeasurementStore.m plugin/MedisalePluginFilter.m
+	@rg -q 'OsirixViewerControllerDidLoadImagesNotification' plugin/MedisalePluginFilter.m
+	@rg -q 'OsirixDCMViewIndexChangedNotification' plugin/MedisalePluginFilter.m
+	@rg -q 'willUnload' plugin/MedisalePluginFilter.m
 	@! rg -q 'ViewerController|DCMPix|DicomImage|NSManagedObject|ROI' plugin/MeasurementRecord.h plugin/MeasurementRecord.m plugin/MeasurementPersistenceStore.h plugin/SQLiteMeasurementStore.h plugin/SQLiteMeasurementStore.m
 	@! rg -q 'sqlite3_|BEGIN IMMEDIATE|COMMIT|ROLLBACK|CREATE TABLE|INSERT INTO|UPDATE ' plugin/MedisalePluginFilter.m plugin/ViewerInspectorPanelHost.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m
 	@! rg -qi 'patient.?name|patient.?id|birth.?date|thumbnail|pixel.?data|study.?name|series.?name|dicom.?path' plugin/MeasurementRecord.h plugin/MeasurementRecord.m plugin/MeasurementPersistenceStore.h plugin/SQLiteMeasurementStore.h plugin/SQLiteMeasurementStore.m

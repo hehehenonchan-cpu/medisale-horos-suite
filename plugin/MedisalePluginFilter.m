@@ -2,6 +2,7 @@
 #import <BrowserController.h>
 #import <DicomSeries.h>
 #import <DicomStudy.h>
+#import <Notifications.h>
 #import <PluginFilter.h>
 #import "GuideEngine.h"
 #import "GuidePreferenceStore.h"
@@ -11,6 +12,7 @@
 #import "MeasurementPanelHost.h"
 #import "MeasurementContextConsumer.h"
 #import "MeasurementPersistenceStore.h"
+#import "MeasurementRecord.h"
 #import "SQLiteMeasurementStore.h"
 #import "TransientLineOverlayController.h"
 #import "TwoPointInputController.h"
@@ -30,11 +32,201 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     NSMapTable<ViewerController *, id<MeasurementPanelHost>> *_panelByViewer;
     GuideEngine *_guideEngine;
     id<MeasurementPersistenceStore> _measurementStore;
+    NSMutableArray *_restoreObservers;
+    BOOL _restoreScheduled;
     NSUInteger _nextViewerNumber;
 }
 @end
 
 @implementation MedisalePluginFilter
+
+- (void)initPlugin
+{
+    [self ensureViewerTracking];
+    [self installRestoreObservers];
+    [self scheduleRestoreForOpenViewers];
+}
+
+- (void)willUnload
+{
+    NSArray *inputs = _inputByViewer.objectEnumerator.allObjects;
+    NSArray *overlays = _overlayByViewer.objectEnumerator.allObjects;
+    NSArray *panels = _panelByViewer.objectEnumerator.allObjects;
+    for (TwoPointInputController *input in inputs) {
+        [input invalidate];
+    }
+    for (TransientLineOverlayController *overlay in overlays) {
+        [overlay invalidate];
+    }
+    for (id<MeasurementPanelHost> panel in panels) {
+        [panel invalidate];
+    }
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    for (id observer in _restoreObservers) {
+        [center removeObserver:observer];
+    }
+    [_restoreObservers removeAllObjects];
+    _restoreObservers = nil;
+    _restoreScheduled = NO;
+    _inputByViewer = nil;
+    _overlayByViewer = nil;
+    _panelByViewer = nil;
+    _viewerByToolbarItem = nil;
+    _viewerNumberByViewer = nil;
+    _browserByToolbarItem = nil;
+    _measurementStore = nil;
+    _guideEngine = nil;
+}
+
+- (void)installRestoreObservers
+{
+    if (_restoreObservers != nil) {
+        return;
+    }
+    _restoreObservers = [NSMutableArray array];
+    NSArray<NSNotificationName> *names = @[
+        OsirixViewerControllerDidLoadImagesNotification,
+        OsirixDCMViewIndexChangedNotification,
+        OsirixDCMUpdateCurrentImageNotification,
+        OsirixViewerDidChangeNotification,
+    ];
+    __weak typeof(self) weakSelf = self;
+    NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
+    for (NSNotificationName name in names) {
+        [_restoreObservers addObject:[center
+            addObserverForName:name object:nil queue:[NSOperationQueue mainQueue]
+            usingBlock:^(NSNotification *notification) {
+                (void)notification;
+                [weakSelf scheduleRestoreForOpenViewers];
+            }]];
+    }
+}
+
+- (void)scheduleRestoreForOpenViewers
+{
+    if (_restoreScheduled) {
+        return;
+    }
+    _restoreScheduled = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_main_queue(), ^{
+        typeof(self) self = weakSelf;
+        if (self == nil) {
+            return;
+        }
+        self->_restoreScheduled = NO;
+        [self restoreMeasurementsForOpenViewers];
+    });
+}
+
+- (void)restoreMeasurementsForOpenViewers
+{
+    NSArray *viewers = [self viewerControllersList];
+    for (id candidate in viewers) {
+        if ([candidate isKindOfClass:[ViewerController class]]) {
+            [self restoreMeasurementForViewer:(ViewerController *)candidate];
+        }
+    }
+}
+
+- (void)restoreMeasurementForViewer:(ViewerController *)viewer
+{
+    if (viewer == nil || viewer.window == nil ||
+        [_inputByViewer objectForKey:viewer] != nil) {
+        return;
+    }
+    NSError *contextError = nil;
+    ImageContext *context = [HorosAdapter imageContextForViewer:viewer error:&contextError];
+    (void)contextError;
+
+    TransientLineOverlayController *existing = [_overlayByViewer objectForKey:viewer];
+    ImageContext *existingIdentity = existing.model.imageIdentity;
+    BOOL existingMatches = existing.isActive && context != nil &&
+        [existingIdentity.studyInstanceUID isEqualToString:context.studyInstanceUID] &&
+        [existingIdentity.seriesInstanceUID isEqualToString:context.seriesInstanceUID] &&
+        [existingIdentity.sopInstanceUID isEqualToString:context.sopInstanceUID] &&
+        existingIdentity.frameNumber == context.frameNumber;
+    if (existingMatches) {
+        return;
+    }
+    if (existing != nil) {
+        [existing invalidate];
+    }
+    if (context == nil) {
+        return;
+    }
+
+    NSError *storeError = nil;
+    id<MeasurementPersistenceStore> store = [self measurementStoreWithError:&storeError];
+    if (store == nil) {
+        return;
+    }
+    MeasurementRecord *record = [store latestMeasurementForImageContext:context
+                                                                    error:&storeError];
+    if (record == nil) {
+        return;
+    }
+
+    if (_overlayByViewer == nil) {
+        _overlayByViewer = [NSMapTable weakToStrongObjectsMapTable];
+    }
+    LineOverlayModel *model = [[LineOverlayModel alloc]
+        initWithPointA:NSMakePoint(record.endpointAX, record.endpointAY)
+                pointB:NSMakePoint(record.endpointBX, record.endpointBY)
+         imageIdentity:context];
+    __weak typeof(self) weakSelf = self;
+    __weak ViewerController *weakViewer = viewer;
+    __block __weak TransientLineOverlayController *weakOverlay = nil;
+    TransientLineOverlayController *overlay = [[TransientLineOverlayController alloc]
+        initWithViewer:viewer model:model invalidation:^{
+            typeof(self) self = weakSelf;
+            ViewerController *viewer = weakViewer;
+            TransientLineOverlayController *overlay = weakOverlay;
+            if (self != nil && viewer != nil &&
+                [self->_overlayByViewer objectForKey:viewer] == overlay) {
+                [self->_overlayByViewer removeObjectForKey:viewer];
+            }
+            id<MeasurementPanelHost> panel =
+                [self->_panelByViewer objectForKey:viewer];
+            [self->_panelByViewer removeObjectForKey:viewer];
+            [panel invalidate];
+        }];
+    weakOverlay = overlay;
+    [_overlayByViewer setObject:overlay forKey:viewer];
+    if (![overlay start]) {
+        [_overlayByViewer removeObjectForKey:viewer];
+        [overlay invalidate];
+        return;
+    }
+
+    if (_panelByViewer == nil) {
+        _panelByViewer = [NSMapTable weakToStrongObjectsMapTable];
+    }
+    __block __weak id<MeasurementPanelHost> weakPanel = nil;
+    id<MeasurementPanelHost> panel = [[ViewerInspectorPanelHost alloc]
+        initWithViewer:viewer
+                 model:model
+           guideEngine:[self guideEngine]
+      persistenceStore:store
+   existingMeasurement:record
+          invalidation:^{
+            typeof(self) self = weakSelf;
+            ViewerController *viewer = weakViewer;
+            id<MeasurementPanelHost> panel = weakPanel;
+            if (self != nil && viewer != nil &&
+                [self->_panelByViewer objectForKey:viewer] == panel) {
+                [self->_panelByViewer removeObjectForKey:viewer];
+            }
+        }];
+    weakPanel = panel;
+    [_panelByViewer setObject:panel forKey:viewer];
+    if (![panel present]) {
+        [_panelByViewer removeObjectForKey:viewer];
+        [panel invalidate];
+        [_overlayByViewer removeObjectForKey:viewer];
+        [overlay invalidate];
+    }
+}
 
 - (id<MeasurementPersistenceStore>)measurementStoreWithError:(NSError **)error
 {
@@ -202,6 +394,7 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                              model:model
                        guideEngine:[self guideEngine]
                   persistenceStore:persistenceStore
+               existingMeasurement:nil
                       invalidation:^{
                     typeof(self) self = weakSelf;
                     ViewerController *viewer = weakViewer;
@@ -288,6 +481,7 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
 
     [_viewerByToolbarItem setObject:controller forKey:item];
     [self viewerNumberForViewer:controller];
+    [self scheduleRestoreForOpenViewers];
 
     return item;
 }

@@ -46,6 +46,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
 @property(nonatomic, readwrite, getter=isBound) BOOL bound;
 @property(nonatomic) BOOL userClosed;
 @property(nonatomic) BOOL hasSaved;
+@property(nonatomic) BOOL restoredMeasurement;
 @property(nonatomic) NSPoint savedPointA;
 @property(nonatomic) NSPoint savedPointB;
 @end
@@ -56,6 +57,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
                 persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
+             existingMeasurement:(MeasurementRecord *)existingMeasurement
                     invalidation:(MedisalePanelHostInvalidation)invalidation
 {
     self = [super init];
@@ -64,8 +66,18 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
         _model = model;
         _guideEngine = guideEngine;
         _persistenceStore = persistenceStore;
-        _measurementID = NSUUID.UUID.UUIDString;
-        _createdAt = [NSDate date];
+        _measurementID = existingMeasurement == nil
+            ? NSUUID.UUID.UUIDString : existingMeasurement.measurementID;
+        _createdAt = existingMeasurement == nil
+            ? [NSDate date] : existingMeasurement.createdAt;
+        _hasSaved = existingMeasurement != nil;
+        _restoredMeasurement = existingMeasurement != nil;
+        if (existingMeasurement != nil) {
+            _savedPointA = NSMakePoint(existingMeasurement.endpointAX,
+                                      existingMeasurement.endpointAY);
+            _savedPointB = NSMakePoint(existingMeasurement.endpointBX,
+                                      existingMeasurement.endpointBY);
+        }
         _invalidation = [invalidation copy];
         _observers = [NSMutableArray array];
     }
@@ -144,7 +156,8 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
     self.saveButton = [NSButton buttonWithTitle:@"Save spike measurement"
                                          target:self
                                          action:@selector(saveMeasurement:)];
-    self.saveStatusField = [NSTextField labelWithString:@"Not saved"];
+    self.saveStatusField = [NSTextField labelWithString:
+        self.restoredMeasurement ? @"Restored from spike store" : @"Not saved"];
     self.saveStatusField.textColor = NSColor.secondaryLabelColor;
 
     NSArray<NSTextField *> *fields = @[
@@ -292,7 +305,8 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
         BOOL unchanged = NSEqualPoints(model.pointA, self.savedPointA) &&
             NSEqualPoints(model.pointB, self.savedPointB);
         self.saveStatusField.stringValue = unchanged
-            ? @"Save OK" : @"Unsaved endpoint changes";
+            ? (self.restoredMeasurement ? @"Restored from spike store" : @"Save OK")
+            : @"Unsaved endpoint changes";
     }
     [self updateGuideFields];
 }
@@ -326,6 +340,7 @@ static NSString *MedisaleInputStateText(LineOverlayInputState state)
         return;
     }
     self.hasSaved = YES;
+    self.restoredMeasurement = NO;
     self.savedPointA = model.pointA;
     self.savedPointB = model.pointB;
     self.saveStatusField.stringValue = @"Save OK";

@@ -37,6 +37,19 @@ static ImageContext *Context(NSInteger frame)
                    pixelSpacingY:0.75];
 }
 
+static ImageContext *ContextWithFrame(ImageContext *context, NSInteger frame)
+{
+    return [[ImageContext alloc]
+        initWithStudyInstanceUID:context.studyInstanceUID
+               seriesInstanceUID:context.seriesInstanceUID
+                  sopInstanceUID:context.sopInstanceUID
+                     frameNumber:frame
+                      pixelWidth:context.pixelWidth
+                     pixelHeight:context.pixelHeight
+                   pixelSpacingX:context.pixelSpacingX
+                   pixelSpacingY:context.pixelSpacingY];
+}
+
 static MeasurementRecord *Record(NSString *identifier,
                                  ImageContext *context,
                                  double ax, double ay,
@@ -253,6 +266,26 @@ int main(void)
               fabs([firstRow[@"by"] doubleValue] - first.endpointBY) < 0.000001 &&
               fabs([firstRow[@"distance"] doubleValue] - first.pixelDistance) < 0.000001,
               @"stored endpoints and distance must match");
+        error = nil;
+        MeasurementRecord *restoredFirst =
+            [store latestMeasurementForImageContext:firstContext error:&error];
+        Check(restoredFirst != nil && error == nil,
+              @"exact image and frame must return a stored measurement");
+        Check([restoredFirst.measurementID isEqual:firstID] &&
+              fabs(restoredFirst.endpointAX - first.endpointAX) < 0.000001 &&
+              fabs(restoredFirst.endpointBY - first.endpointBY) < 0.000001,
+              @"restored identifier and image coordinates must match");
+
+        ImageContext *wrongFrame = ContextWithFrame(firstContext, 1);
+        error = nil;
+        Check([store latestMeasurementForImageContext:wrongFrame error:&error] == nil &&
+              error == nil,
+              @"same SOP on a different frame must not restore");
+        ImageContext *wrongImage = Context(0);
+        error = nil;
+        Check([store latestMeasurementForImageContext:wrongImage error:&error] == nil &&
+              error == nil,
+              @"a different SOP must not receive another image's measurement");
 
         NSDate *updatedAt = [NSDate dateWithTimeIntervalSince1970:1001.0];
         MeasurementRecord *updated = Record(firstID, firstContext,
@@ -265,6 +298,13 @@ int main(void)
               fabs([updatedRow[@"created"] doubleValue] - created.timeIntervalSince1970) < 0.000001 &&
               fabs([updatedRow[@"updated"] doubleValue] - updatedAt.timeIntervalSince1970) < 0.000001,
               @"update must preserve creation and replace mutable values");
+        MeasurementRecord *restoredUpdate =
+            [store latestMeasurementForImageContext:firstContext error:&error];
+        Check([restoredUpdate.measurementID isEqual:firstID] &&
+              fabs(restoredUpdate.endpointBX - updated.endpointBX) < 0.000001 &&
+              fabs(restoredUpdate.updatedAt.timeIntervalSince1970 -
+                   updatedAt.timeIntervalSince1970) < 0.000001,
+              @"restore must return the transactionally updated values");
 
         NSString *secondID = NSUUID.UUID.UUIDString;
         ImageContext *secondContext = Context(1);
@@ -278,6 +318,11 @@ int main(void)
               [secondRow[@"frame"] integerValue] == secondContext.frameNumber &&
               ![secondRow[@"instance"] isEqual:firstContext.sopInstanceUID],
               @"image and frame keys must not cross measurements");
+        MeasurementRecord *restoredSecond =
+            [store latestMeasurementForImageContext:secondContext error:&error];
+        Check([restoredSecond.measurementID isEqual:secondID] &&
+              restoredSecond.imageContext.frameNumber == secondContext.frameNumber,
+              @"second Viewer image and frame must restore independently");
 
         ImageContext *invalidContext = Context(-1);
         MeasurementRecord *invalid = Record(firstID, invalidContext,
@@ -291,6 +336,16 @@ int main(void)
         Check(RecordCount(store.databaseURL) == invalidCount &&
               [ReadRecord(store.databaseURL, firstID) isEqual:beforeInvalid],
               @"invalid input must not mutate records");
+
+        MeasurementRecord *outsideImage = Record(firstID, firstContext,
+                                                  -1.0, 2.0, 3.0, 4.0,
+                                                  created, updatedAt);
+        error = nil;
+        Check(![store saveMeasurement:outsideImage error:&error] && error != nil,
+              @"out-of-image coordinates must fail safely");
+        Check(RecordCount(store.databaseURL) == invalidCount &&
+              [ReadRecord(store.databaseURL, firstID) isEqual:beforeInvalid],
+              @"out-of-image input must not mutate records");
 
         MeasurementRecord *attempt = Record(firstID, firstContext,
                                             30.0, 31.0, 70.0, 71.0,
@@ -340,6 +395,11 @@ int main(void)
         Check(reopened != nil && RecordCount(reopened.databaseURL) == 2,
               @"committed records must remain after reopening the store");
         Check(IntegrityPasses(reopened.databaseURL), @"final integrity must pass");
+        MeasurementRecord *relaunchRestore =
+            [reopened latestMeasurementForImageContext:firstContext error:&error];
+        Check([relaunchRestore.measurementID isEqual:firstID] &&
+              fabs(relaunchRestore.endpointBX - updated.endpointBX) < 0.000001,
+              @"reopened store must restore the exact committed measurement");
 
         [NSFileManager.defaultManager removeItemAtURL:temporaryRoot error:NULL];
         if (Failures == 0) {

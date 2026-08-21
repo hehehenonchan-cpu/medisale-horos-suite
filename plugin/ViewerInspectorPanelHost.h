@@ -10,6 +10,7 @@ NS_ASSUME_NONNULL_BEGIN
                            model:(LineOverlayModel *)model
                      guideEngine:(GuideEngine *)guideEngine
                 persistenceStore:(id<MeasurementPersistenceStore>)persistenceStore
+             existingMeasurement:(nullable MeasurementRecord *)existingMeasurement
                     invalidation:(MedisalePanelHostInvalidation)invalidation NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
