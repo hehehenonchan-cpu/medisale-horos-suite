@@ -8,6 +8,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (instancetype)initWithViewer:(ViewerController *)viewer
                            model:(LineOverlayModel *)model
+                     guideEngine:(GuideEngine *)guideEngine
                     invalidation:(MedisalePanelHostInvalidation)invalidation NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 

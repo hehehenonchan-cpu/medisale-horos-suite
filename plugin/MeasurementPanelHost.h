@@ -1,6 +1,7 @@
 #import <Foundation/Foundation.h>
 
 @class LineOverlayModel;
+@class GuideEngine;
 @class ViewerController;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -14,6 +15,7 @@ typedef void (^MedisalePanelHostInvalidation)(void);
 
 - (instancetype)initWithViewer:(ViewerController *)viewer
                            model:(LineOverlayModel *)model
+                     guideEngine:(GuideEngine *)guideEngine
                     invalidation:(MedisalePanelHostInvalidation)invalidation;
 - (BOOL)present;
 - (void)invalidate;

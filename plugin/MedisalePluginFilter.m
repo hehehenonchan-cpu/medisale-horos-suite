@@ -3,6 +3,8 @@
 #import <DicomSeries.h>
 #import <DicomStudy.h>
 #import <PluginFilter.h>
+#import "GuideEngine.h"
+#import "GuidePreferenceStore.h"
 #import "HorosAdapter.h"
 #import "ImageContext.h"
 #import "LineOverlayModel.h"
@@ -24,11 +26,24 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     NSMapTable<ViewerController *, TwoPointInputController *> *_inputByViewer;
     NSMapTable<ViewerController *, TransientLineOverlayController *> *_overlayByViewer;
     NSMapTable<ViewerController *, id<MeasurementPanelHost>> *_panelByViewer;
+    GuideEngine *_guideEngine;
     NSUInteger _nextViewerNumber;
 }
 @end
 
 @implementation MedisalePluginFilter
+
+- (GuideEngine *)guideEngine
+{
+    if (_guideEngine == nil) {
+        id<GuidePreferenceStore> store = [[CFPreferencesGuidePreferenceStore alloc]
+            initWithApplicationIdentifier:MedisaleGuidePreferenceApplicationIdentifier
+                                     key:MedisaleDetailedGuidePreferenceKey
+                            defaultValue:NO];
+        _guideEngine = [[GuideEngine alloc] initWithPreferenceStore:store];
+    }
+    return _guideEngine;
+}
 
 - (long)filterImage:(NSString *)menuName
 {
@@ -161,6 +176,7 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                 id<MeasurementPanelHost> panel = [[ViewerInspectorPanelHost alloc]
                     initWithViewer:viewer
                              model:model
+                       guideEngine:[self guideEngine]
                       invalidation:^{
                     typeof(self) self = weakSelf;
                     ViewerController *viewer = weakViewer;

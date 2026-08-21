@@ -3,7 +3,7 @@ HOROS_HEADERS := $(HOROS_APP)/Contents/Frameworks/Horos.framework/Versions/A/Hea
 BUILD_DIR := build
 BUNDLE := $(BUILD_DIR)/MedisalePlugin.osirixplugin
 EXECUTABLE := $(BUNDLE)/Contents/MacOS/MedisalePlugin
-SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m plugin/ViewerInspectorPanelHost.m
+SOURCES := plugin/MedisalePluginFilter.m plugin/ImageContext.m plugin/HorosAdapter.m plugin/MeasurementContextConsumer.m plugin/TwoPointInputController.m plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m plugin/GuidePreferenceStore.m plugin/GuideEngine.m plugin/ViewerInspectorPanelHost.m
 
 .PHONY: all clean sign verify
 
@@ -43,9 +43,20 @@ verify: sign
 	@! rg -q 'NSManagedObject|NSUserDefaults|standardUserDefaults|addROI|setROI|saveDocument|writeToFile|sqlite3_|DicomDatabase' plugin/LineOverlayModel.h plugin/LineOverlayModel.m plugin/TransientLineOverlayController.h plugin/TransientLineOverlayController.m
 	@rg -q 'pixelDistance' plugin/LineOverlayModel.h plugin/LineOverlayModel.m plugin/TransientLineOverlayController.m
 	@rg -q '@protocol MeasurementPanelHost' plugin/MeasurementPanelHost.h
+	@rg -q '@protocol GuidePreferenceStore' plugin/GuidePreferenceStore.h
+	@rg -q 'GuideEngineDidChangeNotification' plugin/GuideEngine.h plugin/GuideEngine.m plugin/ViewerInspectorPanelHost.m
+	@rg -q 'Select two points' plugin/GuideEngine.m
+	@rg -q 'Drag an endpoint' plugin/GuideEngine.m
+	@rg -q 'Press Escape' plugin/GuideEngine.m
+	@rg -q 'CFPreferencesCopyValue' plugin/GuidePreferenceStore.m
+	@rg -q 'CFPreferencesSetValue' plugin/GuidePreferenceStore.m
+	@rg -q 'kCFPreferencesCurrentUser' plugin/GuidePreferenceStore.m
+	@rg -q 'kCFPreferencesAnyHost' plugin/GuidePreferenceStore.m
+	@! rg -q 'kCFPreferencesAnyUser|kCFPreferencesCurrentHost|kCFPreferencesAnyApplication|NSUserDefaults|standardUserDefaults' plugin/GuidePreferenceStore.h plugin/GuidePreferenceStore.m plugin/GuideEngine.h plugin/GuideEngine.m
 	@rg -q 'ViewerInspectorPanelHost' plugin/MedisalePluginFilter.m plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
 	@! rg -q 'method_exchangeImplementations|object_getIvar|class_getInstanceVariable|valueForKey.*split|viewer\.(splitView|contentView)|->(splitView|contentView)' plugin/MeasurementPanelHost.h plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
-	@! rg -q 'NSManagedObject|NSUserDefaults|standardUserDefaults|addROI|setROI|saveDocument|writeToFile|sqlite3_|DicomDatabase|NSURLSession|NSURLConnection' plugin/MeasurementPanelHost.h plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
+	@! rg -q 'NSManagedObject|NSUserDefaults|standardUserDefaults|CFPreferences|GuidePreferenceStore|addROI|setROI|saveDocument|writeToFile|sqlite3_|DicomDatabase|NSURLSession|NSURLConnection' plugin/MeasurementPanelHost.h plugin/ViewerInspectorPanelHost.h plugin/ViewerInspectorPanelHost.m
+	@! rg -qi 'VHS|VLAS|CTR|diagnos|normal value|abnormal' plugin/GuideEngine.h plugin/GuideEngine.m plugin/GuidePreferenceStore.h plugin/GuidePreferenceStore.m
 	@plutil -lint "$(BUNDLE)/Contents/Info.plist"
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :NSPrincipalClass' "$(BUNDLE)/Contents/Info.plist")" = MedisalePluginFilter
 	@test "$$(/usr/libexec/PlistBuddy -c 'Print :MenuTitles:0' "$(BUNDLE)/Contents/Info.plist")" = 'Medisale Plugin'
