@@ -6,9 +6,11 @@
 #import "HorosAdapter.h"
 #import "ImageContext.h"
 #import "LineOverlayModel.h"
+#import "MeasurementPanelHost.h"
 #import "MeasurementContextConsumer.h"
 #import "TransientLineOverlayController.h"
 #import "TwoPointInputController.h"
+#import "ViewerInspectorPanelHost.h"
 
 static NSString *const MedisaleViewerToolbarIdentifier = @"jp.medisale.horos.viewer-toolbar-test";
 static NSString *const MedisaleBrowserToolbarIdentifier = @"jp.medisale.horos.browser-toolbar-test";
@@ -21,6 +23,7 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
     NSMapTable<NSToolbarItem *, BrowserController *> *_browserByToolbarItem;
     NSMapTable<ViewerController *, TwoPointInputController *> *_inputByViewer;
     NSMapTable<ViewerController *, TransientLineOverlayController *> *_overlayByViewer;
+    NSMapTable<ViewerController *, id<MeasurementPanelHost>> *_panelByViewer;
     NSUInteger _nextViewerNumber;
 }
 @end
@@ -46,6 +49,14 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
 
 - (void)startTwoPointInputForViewer:(ViewerController *)controller
 {
+    TransientLineOverlayController *existingOverlay =
+        [_overlayByViewer objectForKey:controller];
+    id<MeasurementPanelHost> existingPanel = [_panelByViewer objectForKey:controller];
+    if (existingOverlay.isActive && existingPanel.isBound && !existingPanel.isVisible) {
+        [existingPanel present];
+        return;
+    }
+
     NSError *contextError = nil;
     ImageContext *inputIdentity = [HorosAdapter imageContextForViewer:controller
                                                                 error:&contextError];
@@ -106,6 +117,10 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                     [self->_overlayByViewer objectForKey:viewer];
                 [self->_overlayByViewer removeObjectForKey:viewer];
                 [previous invalidate];
+                id<MeasurementPanelHost> previousPanel =
+                    [self->_panelByViewer objectForKey:viewer];
+                [self->_panelByViewer removeObjectForKey:viewer];
+                [previousPanel invalidate];
 
                 LineOverlayModel *model = [[LineOverlayModel alloc]
                     initWithPointA:a pointB:b imageIdentity:currentIdentity];
@@ -122,6 +137,10 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                         [self->_overlayByViewer objectForKey:viewer] == overlay) {
                         [self->_overlayByViewer removeObjectForKey:viewer];
                     }
+                    id<MeasurementPanelHost> panel =
+                        [self->_panelByViewer objectForKey:viewer];
+                    [self->_panelByViewer removeObjectForKey:viewer];
+                    [panel invalidate];
                 }];
                 weakOverlay = overlay;
                 [self->_overlayByViewer setObject:overlay forKey:viewer];
@@ -135,7 +154,37 @@ static NSString *const MedisaleTwoPointToolbarIdentifier = @"jp.medisale.horos.t
                     return;
                 }
 
-                result.messageText = @"Transient Overlay OK";
+                if (self->_panelByViewer == nil) {
+                    self->_panelByViewer = [NSMapTable weakToStrongObjectsMapTable];
+                }
+                __block __weak id<MeasurementPanelHost> weakPanel = nil;
+                id<MeasurementPanelHost> panel = [[ViewerInspectorPanelHost alloc]
+                    initWithViewer:viewer
+                             model:model
+                      invalidation:^{
+                    typeof(self) self = weakSelf;
+                    ViewerController *viewer = weakViewer;
+                    id<MeasurementPanelHost> panel = weakPanel;
+                    if (self != nil && viewer != nil &&
+                        [self->_panelByViewer objectForKey:viewer] == panel) {
+                        [self->_panelByViewer removeObjectForKey:viewer];
+                    }
+                }];
+                weakPanel = panel;
+                [self->_panelByViewer setObject:panel forKey:viewer];
+                if (![panel present]) {
+                    [self->_panelByViewer removeObjectForKey:viewer];
+                    [panel invalidate];
+                    [self->_overlayByViewer removeObjectForKey:viewer];
+                    [overlay invalidate];
+                    result.messageText = @"Measurement Panel STOP";
+                    result.informativeText = @"The inspector could not bind to the owning Viewer.";
+                    [result addButtonWithTitle:@"OK"];
+                    [result runModal];
+                    return;
+                }
+
+                result.messageText = @"Measurement Panel OK";
                 result.informativeText = [NSString stringWithFormat:
                     @"Viewer %@\nA: %.3f, %.3f\nB: %.3f, %.3f",
                     viewerNumber, a.x, a.y, b.x, b.y];

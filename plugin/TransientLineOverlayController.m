@@ -233,6 +233,7 @@ typedef NS_ENUM(NSInteger, MedisaleEndpoint) {
             if (event.type == NSEventTypeLeftMouseUp && self.draggingEndpoint) {
                 [self updateEndpointDragForEvent:event];
                 self.draggingEndpoint = NO;
+                [self.model updateInputState:LineOverlayInputStateComplete];
                 [self requestRedraw];
                 return nil;
             }
@@ -277,6 +278,15 @@ typedef NS_ENUM(NSInteger, MedisaleEndpoint) {
 {
     self.selectedEndpoint = endpoint;
     self.overlayView.selectedEndpoint = endpoint;
+    if (!self.draggingEndpoint) {
+        LineOverlayInputState state = LineOverlayInputStateComplete;
+        if (endpoint == MedisaleEndpointA) {
+            state = LineOverlayInputStateEndpointASelected;
+        } else if (endpoint == MedisaleEndpointB) {
+            state = LineOverlayInputStateEndpointBSelected;
+        }
+        [self.model updateInputState:state];
+    }
     [self requestRedraw];
 }
 
@@ -320,6 +330,9 @@ typedef NS_ENUM(NSInteger, MedisaleEndpoint) {
     [self selectEndpoint:endpoint];
     self.dragOrigin = endpoint == MedisaleEndpointA ? self.model.pointA : self.model.pointB;
     self.draggingEndpoint = YES;
+    [self.model updateInputState:endpoint == MedisaleEndpointA
+        ? LineOverlayInputStateEditingEndpointA
+        : LineOverlayInputStateEditingEndpointB];
     return YES;
 }
 
@@ -357,7 +370,10 @@ typedef NS_ENUM(NSInteger, MedisaleEndpoint) {
         }
     }
     self.draggingEndpoint = NO;
-    [self selectEndpoint:MedisaleEndpointNone];
+    self.selectedEndpoint = MedisaleEndpointNone;
+    self.overlayView.selectedEndpoint = MedisaleEndpointNone;
+    [self.model updateInputState:LineOverlayInputStateComplete];
+    [self requestRedraw];
 }
 
 - (void)requestRedraw
