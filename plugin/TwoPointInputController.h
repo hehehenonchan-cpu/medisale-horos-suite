@@ -16,6 +16,7 @@ typedef void (^MedisaleTwoPointCompletion)(BOOL cancelled, NSArray<NSValue *> *p
 - (instancetype)init NS_UNAVAILABLE;
 - (void)start;
 - (void)cancel;
+- (void)invalidate;
 
 @end
 

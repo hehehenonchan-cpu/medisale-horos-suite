@@ -215,6 +215,13 @@ static BOOL MedisaleRecordIsValid(MeasurementRecord *record)
         isfinite(record.endpointAX) && isfinite(record.endpointAY) &&
         isfinite(record.endpointBX) && isfinite(record.endpointBY) &&
         isfinite(record.pixelDistance) && record.pixelDistance >= 0.0 &&
+        record.endpointAX >= 0.0 && record.endpointAY >= 0.0 &&
+        record.endpointBX >= 0.0 && record.endpointBY >= 0.0 &&
+        record.endpointAX < context.pixelWidth && record.endpointBX < context.pixelWidth &&
+        record.endpointAY < context.pixelHeight && record.endpointBY < context.pixelHeight &&
+        fabs(record.pixelDistance - hypot(record.endpointBX - record.endpointAX,
+                                          record.endpointBY - record.endpointAY)) <= 0.000001 *
+            MAX(1.0, record.pixelDistance) &&
         record.schemaVersion == MedisaleMeasurementSchemaVersion &&
         record.createdAt != nil && record.updatedAt != nil &&
         [record.updatedAt compare:record.createdAt] != NSOrderedAscending;
@@ -293,6 +300,40 @@ static BOOL MedisaleRecordIsValid(MeasurementRecord *record)
         sqlite3_close(connection);
         if (error != NULL) {
             *error = MedisaleSQLiteError(result, @"enable referential integrity");
+        }
+        return NO;
+    }
+    *database = connection;
+    return YES;
+}
+
+- (BOOL)openReadOnlyDatabase:(sqlite3 **)database error:(NSError **)error
+{
+    if (!MedisaleValidateNoSymlinkComponents(
+            self.databaseURL.URLByDeletingLastPathComponent.path, error) ||
+        !MedisaleEnsureOwnedDatabaseFile(self.databaseURL, error)) {
+        return NO;
+    }
+    sqlite3 *connection = NULL;
+    int result = sqlite3_open_v2(self.databaseURL.fileSystemRepresentation,
+        &connection, SQLITE_OPEN_READONLY | SQLITE_OPEN_FULLMUTEX |
+        SQLITE_OPEN_NOFOLLOW, NULL);
+    if (result != SQLITE_OK) {
+        if (connection != NULL) {
+            sqlite3_close(connection);
+        }
+        if (error != NULL) {
+            *error = MedisaleSQLiteError(result, @"open its database for reading");
+        }
+        return NO;
+    }
+    sqlite3_extended_result_codes(connection, 1);
+    sqlite3_busy_timeout(connection, 150);
+    result = sqlite3_exec(connection, "PRAGMA query_only = ON", NULL, NULL, NULL);
+    if (result != SQLITE_OK) {
+        sqlite3_close(connection);
+        if (error != NULL) {
+            *error = MedisaleSQLiteError(result, @"enter read-only mode");
         }
         return NO;
     }
@@ -473,6 +514,81 @@ cleanup:
         sqlite3_close(database);
     }
     return success;
+}
+
+- (MeasurementRecord *)latestMeasurementForImageContext:(ImageContext *)imageContext
+                                                   error:(NSError **)error
+{
+    if (imageContext.studyInstanceUID.length == 0 ||
+        imageContext.seriesInstanceUID.length == 0 ||
+        imageContext.sopInstanceUID.length == 0 ||
+        imageContext.frameNumber < 0 || imageContext.pixelWidth <= 0 ||
+        imageContext.pixelHeight <= 0) {
+        if (error != NULL) {
+            *error = MedisalePersistenceError(MedisalePersistenceErrorInvalidRecord,
+                @"The restore identity is incomplete or invalid.");
+        }
+        return nil;
+    }
+
+    sqlite3 *database = NULL;
+    sqlite3_stmt *statement = NULL;
+    if (![self openReadOnlyDatabase:&database error:error]) {
+        return nil;
+    }
+    static const char *query =
+        "SELECT measurement_id, endpoint_a_x, endpoint_a_y, endpoint_b_x, endpoint_b_y,"
+        "pixel_distance, schema_version, created_at, updated_at "
+        "FROM measurements WHERE study_instance_uid = ? AND series_instance_uid = ? "
+        "AND sop_instance_uid = ? AND frame_number = ? "
+        "ORDER BY updated_at DESC, measurement_id DESC LIMIT 1";
+    int result = sqlite3_prepare_v2(database, query, -1, &statement, NULL);
+    if (result != SQLITE_OK) {
+        if (error != NULL) {
+            *error = MedisaleSQLiteError(result, @"prepare a restore query");
+        }
+        sqlite3_close(database);
+        return nil;
+    }
+    sqlite3_bind_text(statement, 1, imageContext.studyInstanceUID.UTF8String,
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 2, imageContext.seriesInstanceUID.UTF8String,
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(statement, 3, imageContext.sopInstanceUID.UTF8String,
+                      -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(statement, 4, (sqlite3_int64)imageContext.frameNumber);
+    result = sqlite3_step(statement);
+    MeasurementRecord *measurement = nil;
+    if (result == SQLITE_ROW) {
+        const unsigned char *identifierText = sqlite3_column_text(statement, 0);
+        NSString *identifier = identifierText == NULL ? nil :
+            [NSString stringWithUTF8String:(const char *)identifierText];
+        measurement = [[MeasurementRecord alloc]
+            initWithMeasurementID:identifier ?: @""
+                     imageContext:imageContext
+                        endpointAX:sqlite3_column_double(statement, 1)
+                        endpointAY:sqlite3_column_double(statement, 2)
+                        endpointBX:sqlite3_column_double(statement, 3)
+                        endpointBY:sqlite3_column_double(statement, 4)
+                      pixelDistance:sqlite3_column_double(statement, 5)
+                      schemaVersion:(NSInteger)sqlite3_column_int64(statement, 6)
+                          createdAt:[NSDate dateWithTimeIntervalSince1970:
+                              sqlite3_column_double(statement, 7)]
+                          updatedAt:[NSDate dateWithTimeIntervalSince1970:
+                              sqlite3_column_double(statement, 8)]];
+        if (!MedisaleRecordIsValid(measurement)) {
+            measurement = nil;
+            if (error != NULL) {
+                *error = MedisalePersistenceError(MedisalePersistenceErrorInvalidRecord,
+                    @"The stored measurement is not valid for the current image.");
+            }
+        }
+    } else if (result != SQLITE_DONE && error != NULL) {
+        *error = MedisaleSQLiteError(result, @"read a restore record");
+    }
+    sqlite3_finalize(statement);
+    sqlite3_close(database);
+    return measurement;
 }
 
 @end
